@@ -1,0 +1,107 @@
+{
+  "info": {
+    "name": "Foro - Usuarios y publicaciones",
+    "description": "Ejecutar completa y en orden contra una BD de demostracion. Configurar demoPassword localmente con el valor de DEMO_PASSWORD. Crea y elimina solo registros temporales de esta ejecucion; no elimina los datos iniciales.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key": "usersUrl", "value": "http://localhost:8081"},
+    {"key": "forumUrl", "value": "http://localhost:8082"},
+    {"key": "demoPassword", "value": ""},
+    {"key": "adminToken", "value": ""},
+    {"key": "userToken", "value": ""},
+    {"key": "otherToken", "value": ""},
+    {"key": "userEmail", "value": ""},
+    {"key": "userId", "value": ""},
+    {"key": "categoryId", "value": ""},
+    {"key": "topicId", "value": ""},
+    {"key": "commentId", "value": ""}
+  ],
+  "event": [
+    {"listen": "prerequest", "script": {"type": "text/javascript", "exec": [
+      "if (pm.info.requestName.includes('Registrar usuario temporal')) { pm.collectionVariables.set('userEmail', 'prueba.' + Date.now() + '@foro.test'); }"
+    ]}},
+    {"listen": "test", "script": {"type": "text/javascript", "exec": [
+      "const expected = Number(pm.info.requestName.slice(0, 3));",
+      "pm.test('Estado HTTP esperado: ' + expected, () => pm.response.to.have.status(expected));",
+      "if (expected === 204) { pm.test('Respuesta sin contenido', () => pm.expect(pm.response.text()).to.eql('')); }",
+      "else { pm.test('Respuesta JSON', () => pm.response.to.be.json); }",
+      "if (pm.response.code !== expected || expected >= 400 || expected === 204) { return; }",
+      "const body = pm.response.json();",
+      "const name = pm.info.requestName;",
+      "if (name.includes('Login administrador')) { pm.collectionVariables.set('adminToken', body.accessToken); pm.test('Rol ADMIN', () => pm.expect(body.user.role).to.eql('ADMIN')); }",
+      "if (name.includes('Login otro usuario')) { pm.collectionVariables.set('otherToken', body.accessToken); }",
+      "if (name.includes('Login usuario temporal')) { pm.collectionVariables.set('userToken', body.accessToken); }",
+      "if (name.includes('Registrar usuario temporal')) { pm.collectionVariables.set('userId', body.id); pm.test('Sin hash expuesto y rol USER', () => { pm.expect(body).not.to.have.property('passwordHash'); pm.expect(body.role).to.eql('USER'); }); }",
+      "if (name.includes('Crear categoria temporal')) { pm.collectionVariables.set('categoryId', body.id); }",
+      "if (name.includes('Publicar tema')) { pm.collectionVariables.set('topicId', body.id); pm.test('Autor desde JWT', () => pm.expect(String(body.authorId)).to.eql(String(pm.collectionVariables.get('userId')))); }",
+      "if (name.includes('Comentar tema')) { pm.collectionVariables.set('commentId', body.id); }",
+      "if (name.includes('Cinco categorias iniciales')) { pm.test('Minimo cinco categorias', () => pm.expect(body.length).to.be.at.least(5)); }",
+      "if (name.includes('Buscar tema')) { pm.test('Resultado filtrado', () => pm.expect(body.totalElements).to.eql(1)); }"
+    ]}}
+  ],
+  "item": [
+    {
+      "name": "01 - Autenticacion y usuarios",
+      "item": [
+        {"name": "200 | Login administrador", "request": {"method": "POST", "url": "{{usersUrl}}/api/auth/login", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"email\":\"admin@foro.test\",\"password\":\"{{demoPassword}}\"}"}}},
+        {"name": "200 | Login otro usuario", "request": {"method": "POST", "url": "{{usersUrl}}/api/auth/login", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"email\":\"luis@foro.test\",\"password\":\"{{demoPassword}}\"}"}}},
+        {"name": "201 | Registrar usuario temporal", "request": {"method": "POST", "url": "{{usersUrl}}/api/auth/register", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"displayName\":\"Usuario Postman\",\"email\":\"{{userEmail}}\",\"password\":\"{{demoPassword}}\"}"}}},
+        {"name": "200 | Login usuario temporal", "request": {"method": "POST", "url": "{{usersUrl}}/api/auth/login", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"email\":\"{{userEmail}}\",\"password\":\"{{demoPassword}}\"}"}}},
+        {"name": "200 | Consultar mi perfil", "request": {"method": "GET", "url": "{{usersUrl}}/api/users/me", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}]}},
+        {"name": "200 | Listar usuarios como administrador", "request": {"method": "GET", "url": "{{usersUrl}}/api/users?page=0&size=20", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}]}},
+        {"name": "403 | Usuario normal no puede listar usuarios", "request": {"method": "GET", "url": "{{usersUrl}}/api/users", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}]}},
+        {"name": "200 | Obtener usuario por ID", "request": {"method": "GET", "url": "{{usersUrl}}/api/users/{{userId}}", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}]}},
+        {"name": "200 | Actualizar usuario", "request": {"method": "PUT", "url": "{{usersUrl}}/api/users/{{userId}}", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"displayName\":\"Usuario actualizado\",\"email\":\"{{userEmail}}\"}"}}},
+        {"name": "403 | Usuario no puede cambiar roles", "request": {"method": "PUT", "url": "{{usersUrl}}/api/users/{{userId}}/role", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"role\":\"ADMIN\"}"}}},
+        {"name": "200 | Administrador puede asignar rol", "request": {"method": "PUT", "url": "{{usersUrl}}/api/users/{{userId}}/role", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"role\":\"USER\"}"}}},
+        {"name": "409 | Correo duplicado", "request": {"method": "POST", "url": "{{usersUrl}}/api/auth/register", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"displayName\":\"Duplicado\",\"email\":\"{{userEmail}}\",\"password\":\"{{demoPassword}}\"}"}}},
+        {"name": "400 | Validar datos incorrectos", "request": {"method": "POST", "url": "{{usersUrl}}/api/auth/register", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"displayName\":\"\",\"email\":\"no-es-correo\",\"password\":\"123\"}"}}},
+        {"name": "401 | Login incorrecto", "request": {"method": "POST", "url": "{{usersUrl}}/api/auth/login", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"email\":\"{{userEmail}}\",\"password\":\"clave-incorrecta\"}"}}}
+      ]
+    },
+    {
+      "name": "02 - Categorias",
+      "item": [
+        {"name": "200 | Cinco categorias iniciales", "request": {"method": "GET", "url": "{{forumUrl}}/api/categories"}},
+        {"name": "201 | Crear categoria temporal", "request": {"method": "POST", "url": "{{forumUrl}}/api/categories", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"name\":\"Pruebas {{userId}}\",\"description\":\"Categoria temporal de Postman\"}"}}},
+        {"name": "200 | Obtener categoria", "request": {"method": "GET", "url": "{{forumUrl}}/api/categories/{{categoryId}}"}},
+        {"name": "200 | Actualizar categoria", "request": {"method": "PUT", "url": "{{forumUrl}}/api/categories/{{categoryId}}", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"name\":\"Pruebas {{userId}}\",\"description\":\"Categoria editada\"}"}}},
+        {"name": "403 | Usuario normal no crea categorias", "request": {"method": "POST", "url": "{{forumUrl}}/api/categories", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"name\":\"No permitida\",\"description\":\"Prueba de permisos\"}"}}}
+      ]
+    },
+    {
+      "name": "03 - Temas y busqueda",
+      "item": [
+        {"name": "201 | Publicar tema", "request": {"method": "POST", "url": "{{forumUrl}}/api/topics", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"title\":\"Tema Postman\",\"content\":\"Contenido de prueba\",\"categoryId\":{{categoryId}}}"}}},
+        {"name": "200 | Buscar tema por titulo y categoria", "request": {"method": "GET", "url": "{{forumUrl}}/api/topics?q=Postman&categoryId={{categoryId}}&page=0&size=10"}},
+        {"name": "200 | Visualizar tema", "request": {"method": "GET", "url": "{{forumUrl}}/api/topics/{{topicId}}"}},
+        {"name": "200 | Editar tema propio", "request": {"method": "PUT", "url": "{{forumUrl}}/api/topics/{{topicId}}", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"title\":\"Tema Postman editado\",\"content\":\"Contenido actualizado\",\"categoryId\":{{categoryId}}}"}}},
+        {"name": "409 | Categoria con temas no se elimina", "request": {"method": "DELETE", "url": "{{forumUrl}}/api/categories/{{categoryId}}", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}]}},
+        {"name": "403 | Otro usuario no elimina el tema", "request": {"method": "DELETE", "url": "{{forumUrl}}/api/topics/{{topicId}}", "header": [{"key": "Authorization", "value": "Bearer {{otherToken}}"}]}},
+        {"name": "401 | Publicar sin token", "request": {"method": "POST", "url": "{{forumUrl}}/api/topics", "header": [{"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"title\":\"Sin permiso\",\"content\":\"Prueba\",\"categoryId\":{{categoryId}}}"}}},
+        {"name": "400 | Paginacion invalida", "request": {"method": "GET", "url": "{{forumUrl}}/api/topics?page=-1"}}
+      ]
+    },
+    {
+      "name": "04 - Comentarios",
+      "item": [
+        {"name": "201 | Comentar tema", "request": {"method": "POST", "url": "{{forumUrl}}/api/topics/{{topicId}}/comments", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"content\":\"Comentario desde Postman\"}"}}},
+        {"name": "200 | Listar comentarios", "request": {"method": "GET", "url": "{{forumUrl}}/api/topics/{{topicId}}/comments"}},
+        {"name": "200 | Obtener comentario", "request": {"method": "GET", "url": "{{forumUrl}}/api/topics/{{topicId}}/comments/{{commentId}}"}},
+        {"name": "200 | Editar comentario propio", "request": {"method": "PUT", "url": "{{forumUrl}}/api/topics/{{topicId}}/comments/{{commentId}}", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}, {"key": "Content-Type", "value": "application/json"}], "body": {"mode": "raw", "raw": "{\"content\":\"Comentario editado\"}"}}},
+        {"name": "403 | Otro usuario no elimina comentario", "request": {"method": "DELETE", "url": "{{forumUrl}}/api/topics/{{topicId}}/comments/{{commentId}}", "header": [{"key": "Authorization", "value": "Bearer {{otherToken}}"}]}}
+      ]
+    },
+    {
+      "name": "05 - Eliminar exclusivamente los registros temporales",
+      "item": [
+        {"name": "204 | Eliminar comentario propio", "request": {"method": "DELETE", "url": "{{forumUrl}}/api/topics/{{topicId}}/comments/{{commentId}}", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}]}},
+        {"name": "204 | Eliminar tema propio", "request": {"method": "DELETE", "url": "{{forumUrl}}/api/topics/{{topicId}}", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}]}},
+        {"name": "404 | Tema eliminado no existe", "request": {"method": "GET", "url": "{{forumUrl}}/api/topics/{{topicId}}"}},
+        {"name": "204 | Eliminar categoria temporal", "request": {"method": "DELETE", "url": "{{forumUrl}}/api/categories/{{categoryId}}", "header": [{"key": "Authorization", "value": "Bearer {{adminToken}}"}]}},
+        {"name": "204 | Eliminar usuario temporal", "request": {"method": "DELETE", "url": "{{usersUrl}}/api/users/{{userId}}", "header": [{"key": "Authorization", "value": "Bearer {{userToken}}"}]}}
+      ]
+    }
+  ]
+}
